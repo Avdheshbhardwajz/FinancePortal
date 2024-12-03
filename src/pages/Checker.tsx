@@ -1,7 +1,3 @@
-
-
-'use client'
-
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, X, AlertCircle, LogOut, Plus, Minus, Eye } from 'lucide-react'
@@ -27,6 +23,9 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { useToast } from "@/hooks/use-toast"
+import { fetchChangeTrackerData, approveChange, rejectChange } from '@/services/api'
+import { ChangeTrackerData } from '@/types/checkerData'
 import logo from "../assets/Logo.png"
 
 interface ColumnChange {
@@ -36,7 +35,7 @@ interface ColumnChange {
 }
 
 interface Change {
-  id: string
+  id: number
   user: string
   dateTime: string
   reason: string
@@ -44,8 +43,8 @@ interface Change {
   fullRow: Record<string, string>
   tableName: string
   status: 'pending' | 'approved' | 'rejected'
-  newValues?: Record<string, string>
-  oldValues?: Record<string, string>
+  newValues?: Record<string, any>
+  oldValues?: Record<string, any>
   rowData?: Record<string, string>
 }
 
@@ -64,71 +63,69 @@ export default function EnhancedCheckerPage() {
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false)
   const [isViewModalOpen, setIsViewModalOpen] = useState(false)
   const [rejectReason, setRejectReason] = useState("")
-  const [currentRejectId, setCurrentRejectId] = useState<string | null>(null)
+  const [currentRejectId, setCurrentRejectId] = useState<number | null>(null)
   const [currentViewData, setCurrentViewData] = useState<Record<string, string> | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({})
   const [pendingChanges, setPendingChanges] = useState<Change[]>([])
+  const [isLoading, setIsLoading] = useState(false)
+  const { toast } = useToast()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    const loadPendingChanges = () => {
-      try {
-        const storedChanges = localStorage.getItem('pendingChanges')
-        if (storedChanges) {
-          const rawChanges = JSON.parse(storedChanges)
-          const transformedChanges: Change[] = rawChanges
-            .filter((change: any) => change.status === 'pending')
-            .map((change: any) => ({
-              id: change.id,
-              user: change.maker || 'Unknown User',
-              dateTime: new Date(change.timestamp).toLocaleString(),
-              reason: change.reason || 'No reason provided',
-              changes: Object.keys(change.newValues || {}).map(key => ({
-                column: key,
-                oldValue: String(change.oldValues?.[key] ?? ''),
-                newValue: String(change.newValues?.[key])
-              })),
-              fullRow: change.rowData || {},
-              tableName: change.tableName,
-              status: change.status,
-              newValues: change.newValues,
-              oldValues: change.oldValues,
-              rowData: change.rowData
-            }))
-          setPendingChanges(transformedChanges)
-        }
-      } catch (error) {
-        console.error('Error loading pending changes:', error)
+  const loadPendingChanges = async () => {
+    try {
+      setIsLoading(true)
+      const response = await fetchChangeTrackerData()
+      if (response.success) {
+        const transformedChanges: Change[] = response.data
+          .filter((change: ChangeTrackerData) => change.status === 'pending')
+          .map((change: ChangeTrackerData) => ({
+            id: change.id,
+            user: change.maker_name || 'Unknown User',
+            dateTime: new Date(change.created_at).toLocaleString(),
+            reason: change.comments || 'No reason provided',
+            changes: Object.keys(change.new_values || {}).map(key => ({
+              column: key,
+              oldValue: String(change.old_values?.[key] ?? ''),
+              newValue: String(change.new_values?.[key])
+            })),
+            fullRow: { ...change.old_values, ...change.new_values },
+            tableName: change.table_name,
+            status: change.status,
+            newValues: change.new_values,
+            oldValues: change.old_values,
+            rowData: { ...change.old_values, ...change.new_values }
+          }))
+        setPendingChanges(transformedChanges)
       }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to fetch pending changes"
+      })
+    } finally {
+      setIsLoading(false)
     }
+  }
+
+  useEffect(() => {
     loadPendingChanges()
   }, [])
 
   const organizedData = {
     totalChanges: pendingChanges.length,
-    groups: pendingChanges.reduce((groups: Group[], change) => {
-      const groupName = change.tableName.includes('Product') ? 'Product Master Changes' : 'Investor Changes'
-      
-      let group = groups.find(g => g.name === groupName)
-      if (!group) {
-        group = { name: groupName, tables: [] }
-        groups.push(group)
-      }
-
-      let table = group.tables.find(t => t.name === change.tableName)
+    tables: pendingChanges.reduce((tables: Table[], change) => {
+      let table = tables.find(t => t.name === change.tableName)
       if (!table) {
         table = { name: change.tableName, changes: [] }
-        group.tables.push(table)
+        tables.push(table)
       }
-
       table.changes.push(change)
-
-      return groups
+      return tables
     }, [])
   }
 
-  const toggleChangeSelection = (changeId: string) => {
+  const toggleChangeSelection = (changeId: number) => {
     setSelectedChanges(prev => ({ ...prev, [changeId]: !prev[changeId] }))
   }
 
@@ -137,64 +134,73 @@ export default function EnhancedCheckerPage() {
     setIsViewModalOpen(true)
   }
 
-  const handleApprove = (changeId: string) => {
+  const handleApprove = async (changeId: number) => {
     try {
-      const storedChanges = JSON.parse(localStorage.getItem('pendingChanges') || '[]')
-      const updatedChanges = storedChanges.map((change: Change) => 
-        change.id === changeId ? { ...change, status: 'approved' } : change
-      )
-      localStorage.setItem('pendingChanges', JSON.stringify(updatedChanges))
-      
-      setPendingChanges(prev => prev.filter(change => change.id !== changeId))
-      setSelectedChanges(prev => {
-        const newSelected = { ...prev }
-        delete newSelected[changeId]
-        return newSelected
+      setIsLoading(true)
+      const response = await approveChange(changeId)
+      if (response.success) {
+        toast({
+          title: "Success",
+          description: "Change approved successfully"
+        })
+        setPendingChanges(prev => prev.filter(change => change.id !== changeId))
+        setSelectedChanges(prev => {
+          const newSelected = { ...prev }
+          delete newSelected[changeId]
+          return newSelected
+        })
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to approve change"
       })
-    } catch (error) {
-      console.error('Error approving change:', error)
+    } finally {
+      setIsLoading(false)
     }
   }
 
-  const handleReject = (changeId: string) => {
+  const handleReject = async () => {
+    if (!currentRejectId || !rejectReason.trim()) return
+
+    try {
+      setIsLoading(true)
+      const response = await rejectChange(currentRejectId, rejectReason)
+      if (response.success) {
+        toast({
+          title: "Success",
+          description: "Change rejected successfully"
+        })
+        setPendingChanges(prev => prev.filter(change => change.id !== currentRejectId))
+        setSelectedChanges(prev => {
+          const newSelected = { ...prev }
+          delete newSelected[currentRejectId]
+          return newSelected
+        })
+        setIsRejectModalOpen(false)
+        setRejectReason("")
+        setCurrentRejectId(null)
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to reject change"
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const openRejectModal = (changeId: number) => {
     setCurrentRejectId(changeId)
     setIsRejectModalOpen(true)
-  }
-
-  const submitReject = () => {
-    if (!currentRejectId || !rejectReason.trim()) {
-      return
-    }
-
-    try {
-      const storedChanges = JSON.parse(localStorage.getItem('pendingChanges') || '[]')
-      const updatedChanges = storedChanges.map((change: Change) => 
-        change.id === currentRejectId ? { ...change, status: 'rejected', rejectReason } : change
-      )
-      localStorage.setItem('pendingChanges', JSON.stringify(updatedChanges))
-      
-      setPendingChanges(prev => prev.filter(change => change.id !== currentRejectId))
-      setSelectedChanges(prev => {
-        const newSelected = { ...prev }
-        delete newSelected[currentRejectId]
-        return newSelected
-      })
-
-      setIsRejectModalOpen(false)
-      setRejectReason("")
-      setCurrentRejectId(null)
-    } catch (error) {
-      console.error('Error rejecting change:', error)
-    }
   }
 
   const handleLogout = () => {
     localStorage.removeItem("checkerToken")
     navigate("/login")
-  }
-
-  const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }))
   }
 
   const toggleTable = (tableName: string) => {
@@ -203,23 +209,21 @@ export default function EnhancedCheckerPage() {
 
   const handleApproveAll = (tableName: string) => {
     try {
-      const storedChanges = JSON.parse(localStorage.getItem('pendingChanges') || '[]')
-      const updatedChanges = storedChanges.map((change: Change) => 
-        change.tableName === tableName ? { ...change, status: 'approved' } : change
-      )
-      localStorage.setItem('pendingChanges', JSON.stringify(updatedChanges))
-      
-      setPendingChanges(prev => prev.filter(change => change.tableName !== tableName))
-      setSelectedChanges({})
-    } catch (error) {
-      console.error('Error approving all changes:', error)
+      const changes = pendingChanges.filter(change => change.tableName === tableName)
+      changes.forEach(change => handleApprove(change.id))
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to approve all changes"
+      })
     }
   }
 
   const handleRejectAll = (tableName: string) => {
     const changes = pendingChanges.filter(change => change.tableName === tableName)
     if (changes.length > 0) {
-      setCurrentRejectId(tableName)
+      setCurrentRejectId(changes[0].id)
       setIsRejectModalOpen(true)
     }
   }
@@ -252,136 +256,120 @@ export default function EnhancedCheckerPage() {
       
       <ScrollArea className="h-[calc(100vh-300px)]">
         <div className="space-y-6">
-          {organizedData.groups.map((group, groupIndex) => (
-            <Card key={groupIndex}>
-              <CardHeader className="cursor-pointer" onClick={() => toggleGroup(group.name)}>
-                <CardTitle className="text-xl font-semibold flex items-center justify-between">
-                  {group.name}
-                  {expandedGroups[group.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {organizedData.tables.map((table, tableIndex) => (
+            <Card key={tableIndex}>
+              <CardHeader className="cursor-pointer" onClick={() => toggleTable(table.name)}>
+                <CardTitle className="text-lg font-semibold flex items-center justify-between">
+                  {table.name}
+                  <div className="flex items-center">
+                    <Badge variant="secondary" className="mr-2">{table.changes.length} changes</Badge>
+                    {expandedTables[table.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  </div>
                 </CardTitle>
               </CardHeader>
-              {expandedGroups[group.name] && (
+              {expandedTables[table.name] && (
                 <CardContent>
-                  <div className="space-y-6">
-                    {group.tables.map((table, tableIndex) => (
-                      <Card key={tableIndex}>
-                        <CardHeader className="cursor-pointer" onClick={() => toggleTable(table.name)}>
-                          <CardTitle className="text-lg font-semibold flex items-center justify-between">
-                            {table.name}
-                            <div className="flex items-center">
-                              <Badge variant="secondary" className="mr-2">{table.changes.length} changes</Badge>
-                              {expandedTables[table.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                            </div>
-                          </CardTitle>
-                        </CardHeader>
-                        {expandedTables[table.name] && (
-                          <CardContent>
-                            <div className="flex items-center gap-4 mb-4">
+                  <div className="flex items-center gap-4 mb-4">
+                    <Checkbox
+                      id={`selectAll-${table.name}`}
+                      onCheckedChange={(checked) => {
+                        const newSelected = {...selectedChanges}
+                        table.changes.forEach(change => {
+                          newSelected[change.id] = checked as boolean
+                        })
+                        setSelectedChanges(newSelected)
+                      }}
+                    />
+                    <Label htmlFor={`selectAll-${table.name}`} className="text-sm font-medium">
+                      Select All
+                    </Label>
+                    <Button size="sm" onClick={() => handleApproveAll(table.name)}>
+                      <Check className="h-4 w-4 mr-1" /> Approve All
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleRejectAll(table.name)}>
+                      <X className="h-4 w-4 mr-1" /> Reject All
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[50px]">Sr No.</TableHead>
+                          <TableHead className="w-[120px]">Actions</TableHead>
+                          <TableHead className="w-[50px]">Select</TableHead>
+                          <TableHead>User</TableHead>
+                          <TableHead>Date & Time</TableHead>
+                          <TableHead>Reason</TableHead>
+                          {table.changes[0]?.rowData && Object.keys(table.changes[0].rowData).map((columnName) => (
+                            <TableHead key={columnName}>{columnName}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {table.changes.map((change, index) => (
+                          <TableRow key={change.id}>
+                            <TableCell>{index + 1}</TableCell>
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => handleApprove(change.id)}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="destructive" 
+                                  onClick={() => openRejectModal(change.id)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell>
                               <Checkbox
-                                id={`selectAll-${table.name}`}
-                                onCheckedChange={(checked) => {
-                                  const newSelected = {...selectedChanges}
-                                  table.changes.forEach(change => {
-                                    newSelected[change.id] = checked as boolean
-                                  })
-                                  setSelectedChanges(newSelected)
-                                }}
+                                checked={selectedChanges[change.id]}
+                                onCheckedChange={() => toggleChangeSelection(change.id)}
                               />
-                              <Label htmlFor={`selectAll-${table.name}`} className="text-sm font-medium">
-                                Select All
-                              </Label>
-                              <Button size="sm" onClick={() => handleApproveAll(table.name)}>
-                                <Check className="h-4 w-4 mr-1" /> Approve All
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => handleRejectAll(table.name)}>
-                                <X className="h-4 w-4 mr-1" /> Reject All
-                              </Button>
-                            </div>
-                            <div className="overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead className="w-[50px]">Sr No.</TableHead>
-                                    <TableHead className="w-[120px]">Actions</TableHead>
-                                    <TableHead className="w-[50px]">Select</TableHead>
-                                    <TableHead>User</TableHead>
-                                    <TableHead>Date & Time</TableHead>
-                                    <TableHead>Reason</TableHead>
-                                    {table.changes[0]?.rowData && Object.keys(table.changes[0].rowData).map((columnName) => (
-                                      <TableHead key={columnName}>{columnName}</TableHead>
-                                    ))}
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {table.changes.map((change, index) => (
-                                    <TableRow key={change.id}>
-                                      <TableCell>{index + 1}</TableCell>
-                                      <TableCell>
-                                        <div className="flex space-x-2">
-                                          <Button 
-                                            size="sm" 
-                                            variant="outline" 
-                                            onClick={() => handleApprove(change.id)}
-                                          >
-                                            <Check className="h-4 w-4" />
-                                          </Button>
-                                          <Button 
-                                            size="sm" 
-                                            variant="destructive" 
-                                            onClick={() => handleReject(change.id)}
-                                          >
-                                            <X className="h-4 w-4" />
-                                          </Button>
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <Checkbox
-                                          checked={selectedChanges[change.id]}
-                                          onCheckedChange={() => toggleChangeSelection(change.id)}
-                                        />
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="whitespace-nowrap">{change.user}</div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="whitespace-nowrap">{change.dateTime}</div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="whitespace-nowrap">{change.reason}</div>
-                                      </TableCell>
-                                      {change.rowData && Object.keys(change.rowData).map((columnName) => {
-                                        const columnChange = change.changes.find(c => c.column === columnName);
-                                        const isChanged = !!columnChange;
-                                        
-                                        return (
-                                          <TableCell 
-                                            key={columnName}
-                                            className={isChanged ? 'bg-yellow-50' : ''}
-                                          >
-                                            {isChanged ? (
-                                              <div className="flex flex-col">
-                                                <span className="line-through text-gray-500">
-                                                  {columnChange.oldValue}
-                                                </span>
-                                                <span className="text-green-600">
-                                                  {columnChange.newValue}
-                                                </span>
-                                              </div>
-                                            ) : (
-                                              change.rowData[columnName]
-                                            )}
-                                          </TableCell>
-                                        );
-                                      })}
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          </CardContent>
-                        )}
-                      </Card>
-                    ))}
+                            </TableCell>
+                            <TableCell>
+                              <div className="whitespace-nowrap">{change.user}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="whitespace-nowrap">{change.dateTime}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="whitespace-nowrap">{change.reason}</div>
+                            </TableCell>
+                            {change.rowData && Object.keys(change.rowData).map((columnName) => {
+                              const columnChange = change.changes.find(c => c.column === columnName);
+                              const isChanged = !!columnChange;
+                              
+                              return (
+                                <TableCell 
+                                  key={columnName}
+                                  className={isChanged ? 'bg-yellow-50' : ''}
+                                >
+                                  {isChanged ? (
+                                    <div className="flex flex-col">
+                                      <span className="line-through text-gray-500">
+                                        {columnChange.oldValue}
+                                      </span>
+                                      <span className="text-green-600">
+                                        {columnChange.newValue}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    change.rowData[columnName]
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 </CardContent>
               )}
@@ -423,7 +411,7 @@ export default function EnhancedCheckerPage() {
             </Button>
             <Button 
               type="submit" 
-              onClick={submitReject}
+              onClick={handleReject}
               disabled={!rejectReason.trim()}
             >
               Submit

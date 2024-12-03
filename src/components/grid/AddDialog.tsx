@@ -32,6 +32,11 @@ export const AddDialog = ({
     }))
   }
 
+  const handleClose = () => {
+    setNewData({})
+    onClose()
+  }
+
   const handleSave = async () => {
     try {
       setIsSaving(true)
@@ -51,8 +56,7 @@ export const AddDialog = ({
         description: "Record added successfully",
       })
       onSuccess()
-      onClose()
-      setNewData({})
+      handleClose()
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -65,29 +69,29 @@ export const AddDialog = ({
   }
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto bg-white font-poppins">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold mb-4">Add New Record</DialogTitle>
+          <DialogTitle className="text-xl font-semibold mb-4 font-poppins">Add New Record</DialogTitle>
         </DialogHeader>
-        <div className="grid gap-6 py-4">
+        <div className="grid gap-6 py-4 font-poppins">
           {Object.entries(columnConfigs)
-            .filter(([field]) => field !== 'id' && field !== 'dim_branch_sk')
+            .filter(([field]) => field !== 'id' && field !== 'dim_branch_sk' && columnConfigs[field].isEditable !== false)
             .map(([field, config]: [string, any]) => (
               <EditField
                 key={field}
                 field={field}
                 config={config}
-                value={newData[field] || ''}
-                onChange={(value) => handleFieldChange(field, value)}
+                value={newData[field]}
+                onChange={handleFieldChange}
               />
             ))}
         </div>
-        <div className="flex justify-end gap-2 mt-4">
-          <Button variant="outline" onClick={onClose}>
+        <div className="flex justify-end gap-2 mt-4 font-poppins">
+          <Button variant="outline" onClick={handleClose} className="font-poppins">
             Cancel
           </Button>
-          <Button onClick={handleSave} disabled={isSaving}>
+          <Button onClick={handleSave} disabled={isSaving} className="font-poppins">
             {isSaving ? 'Saving...' : 'Save'}
           </Button>
         </div>

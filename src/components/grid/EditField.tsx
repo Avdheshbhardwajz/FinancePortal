@@ -7,33 +7,19 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Label } from '@/components/ui/label'
 import { cn } from "@/lib/utils"
 import { EditFieldProps } from '@/types/grid'
-import { formatDate } from '@/utils/dateUtils'
 import { format } from 'date-fns'
 
 export const EditField = ({ field, value, validation, config, onChange }: EditFieldProps) => {
   const renderValidationError = () => {
     if (validation?.hasError) {
       return (
-        <div className="flex items-center gap-2 mt-1 text-red-500 text-sm">
+        <div className="flex items-center gap-2 mt-1 text-sm text-red-500 font-poppins">
           <AlertCircle className="h-4 w-4" />
           <span>{validation.message}</span>
         </div>
       )
     }
     return null
-  }
-
-  const commonInputProps = {
-    className: cn(
-      "w-full font-poppins",
-      validation?.hasError && "border-red-500 focus:border-red-500 focus:ring-red-500"
-    ),
-    onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
-      onChange(field, e.target.value)
-    },
-    onBlur: () => {
-      onChange(field, value)
-    }
   }
 
   const formatHeaderName = (header: string) => {
@@ -43,10 +29,11 @@ export const EditField = ({ field, value, validation, config, onChange }: EditFi
       .join(' ')
   }
 
-  switch (config.editType) {
+  switch (config.editType?.toLowerCase()) {
     case 'date calendar':
+    case 'date':
       return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 font-poppins">
           <Label>{formatHeaderName(field)}</Label>
           <Popover>
             <PopoverTrigger asChild>
@@ -68,6 +55,7 @@ export const EditField = ({ field, value, validation, config, onChange }: EditFi
                 selected={value ? new Date(value) : undefined}
                 onSelect={(date) => onChange(field, date?.toISOString())}
                 initialFocus
+                className="bg-white font-poppins"
               />
             </PopoverContent>
           </Popover>
@@ -78,18 +66,23 @@ export const EditField = ({ field, value, validation, config, onChange }: EditFi
     case 'dropdown':
     case 'drop down with predefined value in the column':
       return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 font-poppins">
           <Label>{formatHeaderName(field)}</Label>
           <Select
             value={value?.toString() || ''}
             onValueChange={(newValue) => onChange(field, newValue)}
           >
-            <SelectTrigger className={cn(validation?.hasError && "border-red-500")}>
-              <SelectValue placeholder="Select value" />
+            <SelectTrigger 
+              className={cn(
+                "w-full font-poppins",
+                validation?.hasError && "border-red-500"
+              )}
+            >
+              <SelectValue placeholder="Select value" className="font-poppins" />
             </SelectTrigger>
-            <SelectContent className="bg-white">
-              {config.dropdownOptions?.map((option) => (
-                <SelectItem key={option} value={option}>
+            <SelectContent className="bg-white font-poppins">
+              {config.dropdownOptions?.map((option: string) => (
+                <SelectItem key={option} value={option} className="font-poppins">
                   {option}
                 </SelectItem>
               ))}
@@ -99,15 +92,35 @@ export const EditField = ({ field, value, validation, config, onChange }: EditFi
         </div>
       )
 
-    default:
+    case 'number':
       return (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 font-poppins">
           <Label>{formatHeaderName(field)}</Label>
           <Input
-            type={config.editType === 'number' ? 'number' : 'text'}
-            value={value?.toString() || ""}
-            {...commonInputProps}
-            className="font-poppins"
+            type="number"
+            value={value?.toString() || ''}
+            onChange={(e) => onChange(field, e.target.value ? Number(e.target.value) : null)}
+            className={cn(
+              "w-full font-poppins",
+              validation?.hasError && "border-red-500"
+            )}
+          />
+          {renderValidationError()}
+        </div>
+      )
+
+    default:
+      return (
+        <div className="flex flex-col gap-2 font-poppins">
+          <Label>{formatHeaderName(field)}</Label>
+          <Input
+            type="text"
+            value={value?.toString() || ''}
+            onChange={(e) => onChange(field, e.target.value)}
+            className={cn(
+              "w-full font-poppins",
+              validation?.hasError && "border-red-500"
+            )}
           />
           {renderValidationError()}
         </div>
