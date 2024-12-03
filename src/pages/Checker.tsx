@@ -24,6 +24,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { useToast } from "@/hooks/use-toast"
+import axios from 'axios';
 import { fetchChangeTrackerData, approveChange, rejectChange } from '@/services/api'
 import { ChangeTrackerData } from '@/types/checkerData'
 import logo from "../assets/Logo.png"
@@ -46,6 +47,7 @@ interface Change {
   newValues?: Record<string, any>
   oldValues?: Record<string, any>
   rowData?: Record<string, string>
+  rowId?: number
 }
 
 interface Table {
@@ -93,7 +95,8 @@ export default function EnhancedCheckerPage() {
             status: change.status,
             newValues: change.new_values,
             oldValues: change.old_values,
-            rowData: { ...change.old_values, ...change.new_values }
+            rowData: { ...change.old_values, ...change.new_values },
+            rowId: change.row_id
           }))
         setPendingChanges(transformedChanges)
       }
@@ -136,62 +139,130 @@ export default function EnhancedCheckerPage() {
 
   const handleApprove = async (changeId: number) => {
     try {
-      setIsLoading(true)
-      const response = await approveChange(changeId)
-      if (response.success) {
+      setIsLoading(true);
+      const change = pendingChanges.find(c => c.id === changeId);
+      if (!change) return;
+
+      const response = await axios.post('/api/approve', {
+        table_id: change.tableName,
+        row_id: change.rowId,
+        new_data: change.newValues,
+        checker: 1, // TODO: Replace with actual checker ID from auth
+        comment: ''
+      });
+
+      if (response.data.success) {
         toast({
           title: "Success",
-          description: "Change approved successfully"
-        })
-        setPendingChanges(prev => prev.filter(change => change.id !== changeId))
-        setSelectedChanges(prev => {
-          const newSelected = { ...prev }
-          delete newSelected[changeId]
-          return newSelected
-        })
+          description: "Change request approved successfully",
+        });
+        loadPendingChanges();
       }
-    } catch (error: any) {
+    } catch (error) {
+      console.error('Error approving change:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to approve change"
-      })
+        description: "Failed to approve change request",
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
-  const handleReject = async () => {
-    if (!currentRejectId || !rejectReason.trim()) return
-
+  const handleReject = async (changeId: number) => {
     try {
-      setIsLoading(true)
-      const response = await rejectChange(currentRejectId, rejectReason)
-      if (response.success) {
+      setIsLoading(true);
+      
+      const response = await axios.post('/api/reject', {
+        row_id: changeId,
+        checker: 1, // TODO: Replace with actual checker ID from auth
+        comment: rejectReason
+      });
+
+      if (response.data.success) {
         toast({
           title: "Success",
-          description: "Change rejected successfully"
-        })
-        setPendingChanges(prev => prev.filter(change => change.id !== currentRejectId))
-        setSelectedChanges(prev => {
-          const newSelected = { ...prev }
-          delete newSelected[currentRejectId]
-          return newSelected
-        })
-        setIsRejectModalOpen(false)
-        setRejectReason("")
-        setCurrentRejectId(null)
+          description: "Change request rejected successfully",
+        });
+        setRejectReason("");
+        setCurrentRejectId(null);
+        setIsRejectModalOpen(false);
+        loadPendingChanges();
       }
-    } catch (error: any) {
+    } catch (error) {
+      console.error('Error rejecting change:', error);
       toast({
-        variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to reject change"
-      })
+        description: "Failed to reject change request",
+        variant: "destructive",
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
+
+  const handleApproveAll = async (tableName: string) => {
+    try {
+      setIsLoading(true);
+      const tableChanges = pendingChanges.filter(change => change.tableName === tableName);
+      
+      for (const change of tableChanges) {
+        await axios.post('/api/approve', {
+          table_id: change.tableName,
+          row_id: change.rowId,
+          new_data: change.newValues,
+          checker: 1, // TODO: Replace with actual checker ID from auth
+          comment: ''
+        });
+      }
+
+      toast({
+        title: "Success",
+        description: `All changes for ${tableName} approved successfully`,
+      });
+      loadPendingChanges();
+    } catch (error) {
+      console.error('Error approving all changes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to approve all changes",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRejectAll = async (tableName: string) => {
+    try {
+      setIsLoading(true);
+      const tableChanges = pendingChanges.filter(change => change.tableName === tableName);
+      
+      for (const change of tableChanges) {
+        await axios.post('/api/reject', {
+          row_id: change.id,
+          checker: 1, // TODO: Replace with actual checker ID from auth
+          comment: `Bulk rejection for ${tableName}`
+        });
+      }
+
+      toast({
+        title: "Success",
+        description: `All changes for ${tableName} rejected successfully`,
+      });
+      loadPendingChanges();
+    } catch (error) {
+      console.error('Error rejecting all changes:', error);
+      toast({
+        title: "Error",
+        description: "Failed to reject all changes",
+        variant: "destructive",
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const openRejectModal = (changeId: number) => {
     setCurrentRejectId(changeId)
@@ -205,27 +276,6 @@ export default function EnhancedCheckerPage() {
 
   const toggleTable = (tableName: string) => {
     setExpandedTables(prev => ({ ...prev, [tableName]: !prev[tableName] }))
-  }
-
-  const handleApproveAll = (tableName: string) => {
-    try {
-      const changes = pendingChanges.filter(change => change.tableName === tableName)
-      changes.forEach(change => handleApprove(change.id))
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to approve all changes"
-      })
-    }
-  }
-
-  const handleRejectAll = (tableName: string) => {
-    const changes = pendingChanges.filter(change => change.tableName === tableName)
-    if (changes.length > 0) {
-      setCurrentRejectId(changes[0].id)
-      setIsRejectModalOpen(true)
-    }
   }
 
   return (
@@ -411,7 +461,7 @@ export default function EnhancedCheckerPage() {
             </Button>
             <Button 
               type="submit" 
-              onClick={handleReject}
+              onClick={() => handleReject(currentRejectId as number)}
               disabled={!rejectReason.trim()}
             >
               Submit
