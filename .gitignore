@@ -1,0 +1,51 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependency directories
+node_modules
+.pnp
+.pnp.js
+
+# Build directories and files
+dist
+dist-ssr
+.out
+.next
+.next/cache
+
+# Local environment files
+*.env.local
+.env*.local
+.env*.development.local
+.env*.production.local
+.env*.test.local
+.env*.preview.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+.ntvs
+*.njsproj
+*.sln
+*.sw?
+
+# Ignore next.js cache files
+.next
+
+# Ignore temporary files
+*.tmp
+*.temp
+
+# Ignore lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
