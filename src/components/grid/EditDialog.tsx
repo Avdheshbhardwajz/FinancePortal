@@ -18,6 +18,8 @@ interface EditDialogProps {
   validationErrors: ValidationErrors
   onSave: () => void
   onInputChange: (field: string, value: any) => void
+  isSaving?: boolean
+  error?: string | null
 }
 
 export const EditDialog = ({
@@ -29,6 +31,8 @@ export const EditDialog = ({
   validationErrors,
   onSave,
   onInputChange,
+  isSaving,
+  error,
 }: EditDialogProps) => {
   if (!selectedRowData) return null
 
@@ -162,8 +166,17 @@ export const EditDialog = ({
             ))}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={onSave}>Save Changes</Button>
+          {error && (
+            <div className="text-sm text-red-600 mb-2">
+              {error}
+            </div>
+          )}
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button onClick={onSave} disabled={isSaving}>
+            {isSaving ? 'Saving...' : 'Save changes'}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

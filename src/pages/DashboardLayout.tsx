@@ -6,7 +6,8 @@ import { SelectedTableState } from '@/types/tables'
 import { useTables } from '@/hooks/useTables'
 import { Header } from '@/components/dashboard/Header'
 import { Sidebar } from '@/components/dashboard/Sidebar'
-import { GridTable } from '@/components/grid/GridTable'
+
+ import { GridTable } from '@/components/grid/GridTable'
 import MainContent from '@/components/MainContent'
 import { useToast } from '@/hooks/use-toast'
 

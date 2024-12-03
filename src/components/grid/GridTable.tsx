@@ -8,6 +8,8 @@ import { AddDialog } from './AddDialog'
 import { ColDef } from 'ag-grid-community'
 import { Pencil, Plus } from 'lucide-react'
 import { useGridData } from '@/hooks/useGridData'
+import { submitRequestData } from '@/services/api'
+import { RequestDataPayload } from '@/types/requestData'
 
 interface GridTableProps {
   tableName: string
@@ -34,6 +36,8 @@ const GridTable = memo(({
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
   const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({})
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const handleEditClick = useCallback((row: any) => {
     setSelectedRow(row)
@@ -53,13 +57,34 @@ const GridTable = memo(({
     }))
   }, [])
 
-  const handleEditSave = useCallback(() => {
-    refreshData()
-    setIsEditDialogOpen(false)
-    setSelectedRow(null)
-    setEditedData(null)
-    setValidationErrors({})
-  }, [refreshData])
+  const handleEditSave = useCallback(async () => {
+    try {
+      if (!selectedRow || !editedData) return;
+
+      setIsSaving(true);
+      setSaveError(null);
+
+      const payload: RequestDataPayload = {
+        table_name: tableName,
+        old_values: selectedRow,
+        new_values: editedData,
+        maker_id: 1, // Using a default user ID temporarily
+        comments: ''
+      };
+
+      await submitRequestData(payload);
+      refreshData();
+      setIsEditDialogOpen(false);
+      setSelectedRow(null);
+      setEditedData(null);
+      setValidationErrors({});
+    } catch (error) {
+      console.error('Error saving changes:', error);
+      setSaveError(error instanceof Error ? error.message : 'Failed to save changes');
+    } finally {
+      setIsSaving(false);
+    }
+  }, [refreshData, selectedRow, editedData, tableName]);
 
   const handleAddSuccess = useCallback(() => {
     refreshData()
@@ -186,10 +211,9 @@ const GridTable = memo(({
       <EditDialog
         isOpen={isEditDialogOpen}
         onClose={() => {
-          setIsEditDialogOpen(false)
-          setSelectedRow(null)
-          setEditedData(null)
-          setValidationErrors({})
+          setIsEditDialogOpen(false);
+          setSaveError(null);
+          setValidationErrors({});
         }}
         selectedRowData={selectedRow}
         editedData={editedData || {}}
@@ -197,6 +221,8 @@ const GridTable = memo(({
         validationErrors={validationErrors}
         onSave={handleEditSave}
         onInputChange={handleInputChange}
+        isSaving={isSaving}
+        error={saveError}
       />
 
       <AddDialog
