@@ -17,6 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogFooter,
+  DialogDescription
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -46,6 +47,7 @@ interface Change {
   newValues?: Record<string, any>
   oldValues?: Record<string, any>
   rowData?: Record<string, string>
+  rowId?: number
 }
 
 interface Table {
@@ -93,7 +95,8 @@ export default function EnhancedCheckerPage() {
             status: change.status,
             newValues: change.new_values,
             oldValues: change.old_values,
-            rowData: { ...change.old_values, ...change.new_values }
+            rowData: { ...change.old_values, ...change.new_values },
+            rowId: change.row_id
           }))
         setPendingChanges(transformedChanges)
       }
@@ -137,7 +140,16 @@ export default function EnhancedCheckerPage() {
   const handleApprove = async (changeId: number) => {
     try {
       setIsLoading(true)
-      const response = await approveChange(changeId)
+      const change = pendingChanges.find(c => c.id === changeId)
+      if (!change) return
+
+      const response = await approveChange(
+        changeId,
+        change.tableName,
+        change.rowId || null,
+        change.newValues || {}
+      )
+      
       if (response.success) {
         toast({
           title: "Success",
@@ -161,42 +173,51 @@ export default function EnhancedCheckerPage() {
     }
   }
 
-  const handleReject = async () => {
-    if (!currentRejectId || !rejectReason.trim()) return
+  const handleReject = async (e?: React.FormEvent) => {
+    if (e) {
+      e.preventDefault();
+    }
+    
+    if (!currentRejectId || !rejectReason.trim()) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Please provide a reason for rejection"
+      });
+      return;
+    }
 
     try {
-      setIsLoading(true)
-      const response = await rejectChange(currentRejectId, rejectReason)
+      setIsLoading(true);
+      const response = await rejectChange(currentRejectId, rejectReason);
+      
       if (response.success) {
         toast({
           title: "Success",
           description: "Change rejected successfully"
-        })
-        setPendingChanges(prev => prev.filter(change => change.id !== currentRejectId))
-        setSelectedChanges(prev => {
-          const newSelected = { ...prev }
-          delete newSelected[currentRejectId]
-          return newSelected
-        })
-        setIsRejectModalOpen(false)
-        setRejectReason("")
-        setCurrentRejectId(null)
+        });
+        await loadPendingChanges();
+        setIsRejectModalOpen(false);
+        setRejectReason("");
+        setCurrentRejectId(null);
       }
     } catch (error: any) {
+      console.error('Reject error:', error);
       toast({
         variant: "destructive",
         title: "Error",
         description: error.message || "Failed to reject change"
-      })
+      });
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
 
   const openRejectModal = (changeId: number) => {
-    setCurrentRejectId(changeId)
-    setIsRejectModalOpen(true)
-  }
+    setCurrentRejectId(changeId);
+    setRejectReason("");
+    setIsRejectModalOpen(true);
+  };
 
   const handleLogout = () => {
     localStorage.removeItem("checkerToken")
@@ -207,10 +228,22 @@ export default function EnhancedCheckerPage() {
     setExpandedTables(prev => ({ ...prev, [tableName]: !prev[tableName] }))
   }
 
-  const handleApproveAll = (tableName: string) => {
+  const handleApproveAll = async (tableName: string) => {
     try {
       const changes = pendingChanges.filter(change => change.tableName === tableName)
-      changes.forEach(change => handleApprove(change.id))
+      for (const change of changes) {
+        await approveChange(
+          change.id,
+          change.tableName,
+          change.rowId || null,
+          change.newValues || {}
+        )
+      }
+      toast({
+        title: "Success",
+        description: `All changes for ${tableName} approved successfully`
+      })
+      loadPendingChanges()
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -220,7 +253,7 @@ export default function EnhancedCheckerPage() {
     }
   }
 
-  const handleRejectAll = (tableName: string) => {
+  const handleRejectAll = async (tableName: string) => {
     const changes = pendingChanges.filter(change => change.tableName === tableName)
     if (changes.length > 0) {
       setCurrentRejectId(changes[0].id)
@@ -307,7 +340,7 @@ export default function EnhancedCheckerPage() {
                       </TableHeader>
                       <TableBody>
                         {table.changes.map((change, index) => (
-                          <TableRow key={change.id}>
+                          <TableRow key={`${table.name}-${change.id}-${index}`}>
                             <TableCell>{index + 1}</TableCell>
                             <TableCell>
                               <div className="flex space-x-2">
@@ -342,13 +375,13 @@ export default function EnhancedCheckerPage() {
                             <TableCell>
                               <div className="whitespace-nowrap">{change.reason}</div>
                             </TableCell>
-                            {change.rowData && Object.keys(change.rowData).map((columnName) => {
+                            {change.rowData && Object.keys(change.rowData).map((columnName, colIndex) => {
                               const columnChange = change.changes.find(c => c.column === columnName);
                               const isChanged = !!columnChange;
                               
                               return (
                                 <TableCell 
-                                  key={columnName}
+                                  key={`${change.id}-${columnName}-${colIndex}`}
                                   className={isChanged ? 'bg-yellow-50' : ''}
                                 >
                                   {isChanged ? (
@@ -378,45 +411,61 @@ export default function EnhancedCheckerPage() {
         </div>
       </ScrollArea>
 
-      <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+      <Dialog 
+        open={isRejectModalOpen} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setRejectReason("");
+            setCurrentRejectId(null);
+          }
+          setIsRejectModalOpen(open);
+        }}
+      >
         <DialogContent className="bg-white font-poppins">
           <DialogHeader>
             <DialogTitle>Reason for Rejection</DialogTitle>
+            <DialogDescription>
+              Please provide a reason for rejecting this change.
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="reason" className="text-right">
-                Reason
-              </Label>
-              <Input
-                id="reason"
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                className="col-span-3"
-                placeholder="Enter rejection reason..."
-                required
-              />
+          <form onSubmit={handleReject}>
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label htmlFor="reason" className="text-right">
+                  Reason
+                </Label>
+                <Input
+                  id="reason"
+                  value={rejectReason}
+                  onChange={(e) => setRejectReason(e.target.value)}
+                  className="col-span-3"
+                  placeholder="Enter rejection reason..."
+                  required
+                  autoFocus
+                />
+              </div>
             </div>
-          </div>
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setIsRejectModalOpen(false)
-                setRejectReason("")
-                setCurrentRejectId(null)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button 
-              type="submit" 
-              onClick={handleReject}
-              disabled={!rejectReason.trim()}
-            >
-              Submit
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button 
+                type="button"
+                variant="outline" 
+                onClick={() => {
+                  setIsRejectModalOpen(false);
+                  setRejectReason("");
+                  setCurrentRejectId(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button 
+                type="submit"
+                variant="destructive"
+                disabled={isLoading || !rejectReason.trim()}
+              >
+                {isLoading ? "Rejecting..." : "Submit"}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
