@@ -40,11 +40,6 @@ interface Table {
   changes: Change[]
 }
 
-interface Group {
-  name: string
-  tables: Table[]
-}
-
 export default function EnhancedCheckerPage() {
   const [selectedChanges, setSelectedChanges] = useState<Record<string, boolean>>({})
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false)
@@ -52,7 +47,6 @@ export default function EnhancedCheckerPage() {
   const [rejectReason, setRejectReason] = useState("")
   const [currentRejectId, setCurrentRejectId] = useState<string | null>(null)
   const [currentViewData, setCurrentViewData] = useState<Record<string, string> | null>(null)
-  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({})
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({})
   const [pendingChanges, setPendingChanges] = useState<Change[]>([])
   const [isLoading, setIsLoading] = useState(false)
@@ -124,24 +118,14 @@ export default function EnhancedCheckerPage() {
 
   const organizedData = {
     totalChanges: pendingChanges.length,
-    groups: pendingChanges.reduce((groups: Group[], change) => {
-      const groupName = change.tableName.includes('Product') ? 'Product Master Changes' : 'Investor Changes'
-      
-      let group = groups.find(g => g.name === groupName)
-      if (!group) {
-        group = { name: groupName, tables: [] }
-        groups.push(group)
-      }
-
-      let table = group.tables.find(t => t.name === change.tableName)
+    tables: pendingChanges.reduce((tables: Table[], change) => {
+      let table = tables.find(t => t.name === change.tableName)
       if (!table) {
         table = { name: change.tableName, changes: [] }
-        group.tables.push(table)
+        tables.push(table)
       }
-
       table.changes.push(change)
-
-      return groups
+      return tables
     }, [])
   }
 
@@ -238,10 +222,6 @@ export default function EnhancedCheckerPage() {
     navigate("/login")
   }
 
-  const toggleGroup = (groupName: string) => {
-    setExpandedGroups(prev => ({ ...prev, [groupName]: !prev[groupName] }))
-  }
-
   const toggleTable = (tableName: string) => {
     setExpandedTables(prev => ({ ...prev, [tableName]: !prev[tableName] }))
   }
@@ -297,134 +277,118 @@ export default function EnhancedCheckerPage() {
       
       <ScrollArea className="h-[calc(100vh-300px)]">
         <div className="space-y-6">
-          {organizedData.groups.map((group, groupIndex) => (
-            <Card key={groupIndex}>
-              <CardHeader className="cursor-pointer" onClick={() => toggleGroup(group.name)}>
-                <CardTitle className="text-xl font-semibold flex items-center justify-between">
-                  {group.name}
-                  {expandedGroups[group.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {organizedData.tables.map((table, tableIndex) => (
+            <Card key={tableIndex}>
+              <CardHeader className="cursor-pointer" onClick={() => toggleTable(table.name)}>
+                <CardTitle className="text-lg font-semibold flex items-center justify-between">
+                  {table.name}
+                  <div className="flex items-center">
+                    <Badge variant="secondary" className="mr-2">{table.changes.length} changes</Badge>
+                    {expandedTables[table.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                  </div>
                 </CardTitle>
               </CardHeader>
-              {expandedGroups[group.name] && (
+              {expandedTables[table.name] && (
                 <CardContent>
-                  <div className="space-y-6">
-                    {group.tables.map((table, tableIndex) => (
-                      <Card key={tableIndex}>
-                        <CardHeader className="cursor-pointer" onClick={() => toggleTable(table.name)}>
-                          <CardTitle className="text-lg font-semibold flex items-center justify-between">
-                            {table.name}
-                            <div className="flex items-center">
-                              <Badge variant="secondary" className="mr-2">{table.changes.length} changes</Badge>
-                              {expandedTables[table.name] ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
-                            </div>
-                          </CardTitle>
-                        </CardHeader>
-                        {expandedTables[table.name] && (
-                          <CardContent>
-                            <div className="flex items-center gap-4 mb-4">
+                  <div className="flex items-center gap-4 mb-4">
+                    <Checkbox
+                      id={`selectAll-${table.name}`}
+                      onCheckedChange={(checked) => {
+                        const newSelected = {...selectedChanges}
+                        table.changes.forEach(change => {
+                          newSelected[change.id] = checked as boolean
+                        })
+                        setSelectedChanges(newSelected)
+                      }}
+                    />
+                    <Label htmlFor={`selectAll-${table.name}`} className="text-sm font-medium">
+                      Select All
+                    </Label>
+                    <Button size="sm" onClick={() => handleApproveAll(table.name)}>
+                      <Check className="h-4 w-4 mr-1" /> Approve All
+                    </Button>
+                    <Button size="sm" variant="destructive" onClick={() => handleRejectAll(table.name)}>
+                      <X className="h-4 w-4 mr-1" /> Reject All
+                    </Button>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-[50px]">Sr No.</TableHead>
+                          <TableHead className="w-[120px]">Actions</TableHead>
+                          <TableHead className="w-[50px]">Select</TableHead>
+                          <TableHead>User</TableHead>
+                          <TableHead>Date & Time</TableHead>
+                          {table.changes[0]?.rowData && Object.keys(table.changes[0].rowData).map((columnName, colIndex) => (
+                            <TableHead key={`${table.name}-${columnName}-${colIndex}`}>{columnName}</TableHead>
+                          ))}
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {table.changes.map((change, index) => (
+                          <TableRow key={change.id}>
+                            <TableCell>{index + 1}</TableCell>
+                            <TableCell>
+                              <div className="flex space-x-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  onClick={() => handleApprove(change.id)}
+                                >
+                                  <Check className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  size="sm" 
+                                  variant="destructive" 
+                                  onClick={() => handleReject(change.id)}
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
+                            <TableCell>
                               <Checkbox
-                                id={`selectAll-${table.name}`}
-                                onCheckedChange={(checked) => {
-                                  const newSelected = {...selectedChanges}
-                                  table.changes.forEach(change => {
-                                    newSelected[change.id] = checked as boolean
-                                  })
-                                  setSelectedChanges(newSelected)
-                                }}
+                                checked={selectedChanges[change.id]}
+                                onCheckedChange={() => toggleChangeSelection(change.id)}
                               />
-                              <Label htmlFor={`selectAll-${table.name}`} className="text-sm font-medium">
-                                Select All
-                              </Label>
-                              <Button size="sm" onClick={() => handleApproveAll(table.name)}>
-                                <Check className="h-4 w-4 mr-1" /> Approve All
-                              </Button>
-                              <Button size="sm" variant="destructive" onClick={() => handleRejectAll(table.name)}>
-                                <X className="h-4 w-4 mr-1" /> Reject All
-                              </Button>
-                            </div>
-                            <div className="overflow-x-auto">
-                              <Table>
-                                <TableHeader>
-                                  <TableRow>
-                                    <TableHead className="w-[50px]">Sr No.</TableHead>
-                                    <TableHead className="w-[120px]">Actions</TableHead>
-                                    <TableHead className="w-[50px]">Select</TableHead>
-                                    <TableHead>User</TableHead>
-                                    <TableHead>Date & Time</TableHead>
-                                    {table.changes[0]?.rowData && Object.keys(table.changes[0].rowData).map((columnName, colIndex) => (
-                                      <TableHead key={`${table.name}-${columnName}-${colIndex}`}>{columnName}</TableHead>
-                                    ))}
-                                  </TableRow>
-                                </TableHeader>
-                                <TableBody>
-                                  {table.changes.map((change, index) => (
-                                    <TableRow key={change.id}>
-                                      <TableCell>{index + 1}</TableCell>
-                                      <TableCell>
-                                        <div className="flex space-x-2">
-                                          <Button 
-                                            size="sm" 
-                                            variant="outline" 
-                                            onClick={() => handleApprove(change.id)}
-                                          >
-                                            <Check className="h-4 w-4" />
-                                          </Button>
-                                          <Button 
-                                            size="sm" 
-                                            variant="destructive" 
-                                            onClick={() => handleReject(change.id)}
-                                          >
-                                            <X className="h-4 w-4" />
-                                          </Button>
-                                        </div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <Checkbox
-                                          checked={selectedChanges[change.id]}
-                                          onCheckedChange={() => toggleChangeSelection(change.id)}
-                                        />
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="whitespace-nowrap">{change.user}</div>
-                                      </TableCell>
-                                      <TableCell>
-                                        <div className="whitespace-nowrap">{change.dateTime}</div>
-                                      </TableCell>
-                                      {change.rowData && Object.keys(change.rowData).map((columnName, colIndex) => {
-                                        const isChanged = change.changedColumns?.includes(columnName) || false;
-                                        
-                                        return (
-                                          <TableCell 
-                                            key={`${change.request_id}-${columnName}-${colIndex}`}
-                                            className={isChanged ? 'bg-yellow-50' : ''}
-                                          >
-                                            {isChanged ? (
-                                              <div className="flex flex-col">
-                                                <span className="line-through text-red-500">
-                                                  {String(change.oldValues[columnName] ?? '-')}
-                                                </span>
-                                                <span className="text-green-600">
-                                                  {String(change.newValues[columnName] ?? '-')}
-                                                </span>
-                                              </div>
-                                            ) : (
-                                              String(change.rowData[columnName] ?? '-')
-                                            )}
-                                          </TableCell>
-                                        );
-                                      })}
-                                    </TableRow>
-                                  ))}
-                                </TableBody>
-                              </Table>
-                            </div>
-                          </CardContent>
-                        )} 
-                      </Card>
-                    ))}
+                            </TableCell>
+                            <TableCell>
+                              <div className="whitespace-nowrap">{change.user}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div className="whitespace-nowrap">{change.dateTime}</div>
+                            </TableCell>
+                            {change.rowData && Object.keys(change.rowData).map((columnName, colIndex) => {
+                              const isChanged = change.changedColumns?.includes(columnName) || false;
+                              
+                              return (
+                                <TableCell 
+                                  key={`${change.request_id}-${columnName}-${colIndex}`}
+                                  className={isChanged ? 'bg-yellow-50' : ''}
+                                >
+                                  {isChanged ? (
+                                    <div className="flex flex-col">
+                                      <span className="line-through text-red-500">
+                                        {String(change.oldValues[columnName] ?? '-')}
+                                      </span>
+                                      <span className="text-green-600">
+                                        {String(change.newValues[columnName] ?? '-')}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    String(change.rowData[columnName] ?? '-')
+                                  )}
+                                </TableCell>
+                              );
+                            })}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
                 </CardContent>
-              )} 
+              )}
             </Card>
           ))}
         </div>
