@@ -42,6 +42,7 @@ const Admin = () => {
   // Logout handler
   const handleLogout = useCallback(() => {
     localStorage.removeItem('adminToken');
+    localStorage.removeItem('userData');
     navigate('/login');
   }, []);
 

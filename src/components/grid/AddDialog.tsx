@@ -40,12 +40,12 @@ export const AddDialog = ({
   const handleSave = async () => {
     try {
       setIsSaving(true)
-      
+      const userData = JSON.parse(localStorage.getItem('userData') || '{}')
       const payload: RequestDataPayload = {
         table_name: tableName,
         old_values: {}, // Empty object for new records
         new_values: newData,
-        maker_id: 1, // Using default user ID temporarily
+        maker_id: userData.user_id, // Using default user ID temporarily
         comments: 'New record added'
       }
 

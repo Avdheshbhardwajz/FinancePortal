@@ -3,29 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { Check, X, AlertCircle, LogOut, Plus, Minus, Eye } from 'lucide-react'
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import logo from "../assets/Logo.png"
 import { useToast } from "@/hooks/use-toast"
-import axios from 'axios'
+import { fetchChangeTrackerData, approveChange, rejectChange } from '@/services/api'
 
 interface ColumnChange {
   column: string
@@ -75,10 +62,10 @@ export default function EnhancedCheckerPage() {
   const loadPendingChanges = async () => {
     try {
       setIsLoading(true)
-      const response = await axios.get(`http://localhost:8080/fetchchangetrackerdata`)
+      const response = await fetchChangeTrackerData()
       
-      if (response.data.success) {
-        const transformedChanges: Change[] = response.data.data
+      if (response.success) {
+        const transformedChanges: Change[] = response.data
           .filter((change: any) => change.status === 'pending')
           .map((change: any) => {
             // Calculate changed columns by comparing old_data and new_data
@@ -116,7 +103,7 @@ export default function EnhancedCheckerPage() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: response.data.message || "Failed to fetch pending changes"
+          description: response.message || "Failed to fetch pending changes"
         })
       }
     } catch (error: any) {
@@ -173,14 +160,9 @@ export default function EnhancedCheckerPage() {
       const change = pendingChanges.find(c => c.id === changeId)
       if (!change) return
 
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/approve`, {
-        table_id: change.tableName,
-        row_id: changeId,
-        new_data: change.newValues,
-        checker: localStorage.getItem('userId') // Assuming you store userId in localStorage
-      })
-
-      if (response.data.success) {
+      const response = await approveChange(change.request_id)
+      
+      if (response.success) {
         toast({
           title: "Success",
           description: "Change approved successfully"
@@ -190,7 +172,7 @@ export default function EnhancedCheckerPage() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: response.data.message || "Failed to approve change"
+          description: response.message || "Failed to approve change"
         })
       }
     } catch (error: any) {
@@ -217,13 +199,12 @@ export default function EnhancedCheckerPage() {
 
     try {
       setIsLoading(true)
-      const response = await axios.post(`${process.env.REACT_APP_API_URL}/reject`, {
-        row_id: currentRejectId,
-        comment: rejectReason,
-        checker: localStorage.getItem('userId') // Assuming you store userId in localStorage
-      })
+      const change = pendingChanges.find(c => c.id === currentRejectId)
+      if (!change) return
 
-      if (response.data.success) {
+      const response = await rejectChange(change.request_id, rejectReason)
+
+      if (response.success) {
         toast({
           title: "Success",
           description: "Change rejected successfully"
@@ -236,7 +217,7 @@ export default function EnhancedCheckerPage() {
         toast({
           variant: "destructive",
           title: "Error",
-          description: response.data.message || "Failed to reject change"
+          description: response.message || "Failed to reject change"
         })
       }
     } catch (error: any) {
@@ -253,6 +234,7 @@ export default function EnhancedCheckerPage() {
 
   const handleLogout = () => {
     localStorage.removeItem("checkerToken")
+    localStorage.removeItem('userData');
     navigate("/login")
   }
 

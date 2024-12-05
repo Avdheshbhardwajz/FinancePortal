@@ -63,12 +63,12 @@ const GridTable = memo(({
 
       setIsSaving(true);
       setSaveError(null);
-
+      const userData = JSON.parse(localStorage.getItem('userData') || '{}')
       const payload: RequestDataPayload = {
         table_name: tableName,
         old_values: selectedRow,
         new_values: editedData,
-        maker_id: 1, // Using a default user ID temporarily
+        maker_id: userData.user_id, // Using a default user ID temporarily
         comments: ''
       };
 

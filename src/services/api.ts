@@ -3,6 +3,8 @@ import { RequestDataPayload } from '../types/requestData';
 import { ChangeTrackerResponse, ApproveRejectResponse } from '../types/checkerData';
 
 const API_BASE_URL = 'http://localhost:8080';
+const userData = JSON.parse(localStorage.getItem('userData') || '{}');
+const checkerId = userData.user_id;
 
 export const submitRequestData = async (payload: RequestDataPayload) => {
   try {
@@ -24,18 +26,14 @@ export const fetchChangeTrackerData = async (): Promise<ChangeTrackerResponse> =
 };
 
 export const approveChange = async (
-  changeId: number, 
-  tableName: string, 
-  rowId: number | null, 
-  newData: Record<string, any>
+  requestId: string,
+  comments?: string
 ): Promise<ApproveRejectResponse> => {
   try {
     const response = await axios.post<ApproveRejectResponse>(`${API_BASE_URL}/approve`, {
-      table_id: tableName,
-      row_id: rowId,
-      new_data: newData,
-      checker: 1, // TODO: Replace with actual checker ID from auth
-      comment: ''
+      request_id: requestId,
+      comments: comments,
+      checker: checkerId// Get checker ID from localStorage
     });
     
     if (response.data.success) {
@@ -49,14 +47,15 @@ export const approveChange = async (
 };
 
 export const rejectChange = async (
-  changeId: number, 
+  requestId: string,
   comments: string
 ): Promise<ApproveRejectResponse> => {
   try {
-    const response = await axios.post<ApproveRejectResponse>(`${API_BASE_URL}/reject`, { 
-      row_id: changeId,
-      checker: 1, // TODO: Replace with actual checker ID from auth
-      comment: comments
+  
+    const response = await axios.post<ApproveRejectResponse>(`${API_BASE_URL}/reject`, {
+      request_id: requestId,
+      comments: comments,
+      checker: checkerId // Get checker ID from localStorage
     });
     
     if (response.data.success) {
