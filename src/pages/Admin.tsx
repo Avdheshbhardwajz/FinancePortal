@@ -1,5 +1,4 @@
 import React, { useState, useCallback, useEffect } from 'react';
-
 import { PlusCircle, Trash2, Edit2, Eye, EyeOff, LogOut } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -15,10 +14,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useNavigate } from 'react-router-dom';
-//import Definedata from '@/components/Definedata';
 import DropdownColumnsManager from '@/components/DropdownManager';
+import { createUser, getAllUsers, updateUser, deleteUser, User } from '@/services/userApi';
+import { useToast } from '@/hooks/use-toast';
 
-const INITIAL_USER_STATE = {
+const INITIAL_USER_STATE: User = {
   firstName: '',
   lastName: '',
   email: '',
@@ -27,55 +27,61 @@ const INITIAL_USER_STATE = {
 };
 
 const Admin = () => {
- const Navigate = useNavigate() ;
+  const navigate = useNavigate();
+  const { toast } = useToast();
   
   // Check for authentication on component mount
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
     if (!token) {
-      Navigate('/login');
+      navigate('/login');
     }
+    loadUsers();
   }, []);
 
   // Logout handler
   const handleLogout = useCallback(() => {
     localStorage.removeItem('adminToken');
-    Navigate('/login');
+    navigate('/login');
   }, []);
 
-  // Existing state management
-  const [users, setUsers] = useState([
-    { 
-      id: 1, 
-      firstName: 'John',
-      lastName: 'Doe',
-      email: 'john@example.com',
-      password: '********',
-      role: 'maker' 
-    },
-    { 
-      id: 2, 
-      firstName: 'Jane',
-      lastName: 'Smith',
-      email: 'jane@example.com',
-      password: '********',
-      role: 'checker' 
-    },
-  ]);
-
-  const [newUser, setNewUser] = useState(INITIAL_USER_STATE);
-  const [editingUser, setEditingUser] = useState(null);
-  const [alert, setAlert] = useState({ show: false, message: '', type: 'info' });
+  // State management
+  const [users, setUsers] = useState<User[]>([]);
+  const [newUser, setNewUser] = useState<User>(INITIAL_USER_STATE);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [dialogState, setDialogState] = useState({
     delete: { open: false, user: null },
     edit: { open: false }
   });
 
-  // Validation
-  const validateForm = useCallback((user, isEdit = false) => {
-    const errors = {};
+  // Load users from backend
+  const loadUsers = async () => {
+    try {
+      const response = await getAllUsers();
+      if (response.success) {
+        const transformedUsers = response.data.map((user: any) => ({
+          id: user.user_id,
+          firstName: user.first_name,
+          lastName: user.last_name,
+          email: user.email,
+          role: user.role
+        }));
+        setUsers(transformedUsers);
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to load users"
+      });
+    }
+  };
+
+  // Form validation
+  const validateForm = useCallback((user: User, isEdit = false) => {
+    const errors: Record<string, string> = {};
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
     if (!user.firstName?.trim()) errors.firstName = 'First name is required';
@@ -90,67 +96,50 @@ const Admin = () => {
     return errors;
   }, []);
 
-  // Alert handlers
-  const showAlertMessage = useCallback((message, type = 'info') => {
-    setAlert({ show: true, message, type });
-    setTimeout(() => setAlert({ show: false, message: '', type: 'info' }), 3000);
-  }, []);
-
-  // Form handlers
-  const handleCreateUser = useCallback((e) => {
+  // Create user handler
+  const handleCreateUser = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
     const validationErrors = validateForm(newUser);
     
     if (Object.keys(validationErrors).length > 0) {
       setErrors(validationErrors);
-      showAlertMessage('Please fix the errors in the form', 'error');
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please fix the errors in the form"
+      });
       return;
     }
     
-    const newId = Math.max(...users.map(u => u.id), 0) + 1;
-    setUsers(prev => [...prev, { ...newUser, id: newId }]);
-    setNewUser(INITIAL_USER_STATE);
-    setErrors({});
-    showAlertMessage('User created successfully', 'success');
-  }, [newUser, users, validateForm, showAlertMessage]);
-
-  const handleUpdateUser = useCallback(() => {
-    const validationErrors = validateForm(editingUser, true);
-    
-    if (Object.keys(validationErrors).length > 0) {
-      setErrors(validationErrors);
-      showAlertMessage('Please fix the errors in the form', 'error');
-      return;
+    try {
+      const response = await createUser(newUser);
+      if (response.success) {
+        setNewUser(INITIAL_USER_STATE);
+        setErrors({});
+        loadUsers();
+        toast({
+          title: "Success",
+          description: "User created successfully"
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to create user"
+      });
     }
-
-    setUsers(prev => prev.map(user => 
-      user.id === editingUser.id ? editingUser : user
-    ));
-    setDialogState(prev => ({ ...prev, edit: { open: false } }));
-    setEditingUser(null);
-    setErrors({});
-    showAlertMessage('User updated successfully', 'success');
-  }, [editingUser, validateForm, showAlertMessage]);
+  }, [newUser, validateForm]);
 
   // Dialog handlers
-  const handleDeleteClick = useCallback((user) => {
+  const handleDeleteClick = useCallback((user: User) => {
     setDialogState(prev => ({
       ...prev,
       delete: { open: true, user }
     }));
   }, []);
 
-  const handleConfirmDelete = useCallback(() => {
-    const userToDelete = dialogState.delete.user;
-    setUsers(prev => prev.filter(user => user.id !== userToDelete.id));
-    setDialogState(prev => ({
-      ...prev,
-      delete: { open: false, user: null }
-    }));
-    showAlertMessage('User deleted successfully', 'success');
-  }, [dialogState.delete.user, showAlertMessage]);
-
-  const handleEditClick = useCallback((user) => {
+  const handleEditClick = useCallback((user: User) => {
     setEditingUser({ ...user });
     setDialogState(prev => ({
       ...prev,
@@ -158,6 +147,77 @@ const Admin = () => {
     }));
     setErrors({});
   }, []);
+
+  // Update user handler
+  const handleUpdateUser = useCallback(async () => {
+    if (!editingUser?.id) return;
+
+    const validationErrors = validateForm(editingUser, true);
+    
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors);
+      toast({
+        variant: "destructive",
+        title: "Validation Error",
+        description: "Please fix the errors in the form"
+      });
+      return;
+    }
+
+    try {
+      const response = await updateUser(editingUser.id.toString(), {
+        email: editingUser.email,
+        first_name: editingUser.firstName,
+        last_name: editingUser.lastName,
+        role: editingUser.role,
+        password: editingUser.password // Only included if changed
+      });
+
+      if (response.success) {
+        setDialogState(prev => ({ ...prev, edit: { open: false } }));
+        setEditingUser(null);
+        setErrors({});
+        loadUsers();
+        toast({
+          title: "Success",
+          description: "User updated successfully"
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to update user"
+      });
+    }
+  }, [editingUser, validateForm]);
+
+  // Delete user handler
+  const handleConfirmDelete = useCallback(async () => {
+    const userToDelete = dialogState.delete.user;
+    if (!userToDelete?.id) return;
+
+    try {
+      const response = await deleteUser(userToDelete.id.toString());
+      if (response.success) {
+        setDialogState(prev => ({
+          ...prev,
+          delete: { open: false, user: null }
+        }));
+        loadUsers();
+        toast({
+          title: "Success",
+          description: "User deleted successfully"
+        });
+      }
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: error.message || "Failed to delete user"
+      });
+    }
+  }, [dialogState.delete.user]);
 
   // Render helpers
   const renderFormInput = useCallback((field, label, type = 'text', value, onChange) => (
@@ -177,18 +237,6 @@ const Admin = () => {
     </div>
   ), [errors]);
 
-  const { 
-    isLoading, 
-    error, 
-    rowData, 
-    pagination, 
-    handlePageChange, 
-    handlePageSizeChange 
-  } = useGridData({ 
-    tableName: activeTable,
-    initialPageSize: 20
-  })
-
   return (
     <div className="p-6 space-y-6 max-w-6xl mx-auto">
       {/* Header with Logout Button */}
@@ -197,30 +245,20 @@ const Admin = () => {
           onClick={handleLogout}
           variant="outline"
           className="flex items-center gap-2"
-          aria-label="Logout"
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="h-4 w-4" />
           Logout
         </Button>
       </div>
 
-      {alert.show && (
-        <Alert className={`mb-4 ${alert.type === 'error' ? 'bg-red-50' : 'bg-green-50'}`}>
-          <AlertDescription>{alert.message}</AlertDescription>
-        </Alert>
-      )}
-
-      {/* Rest of the component remains the same */}
       {/* Create User Form */}
       <Card className='font-poppins'>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <PlusCircle className="w-5 h-5" />
+          <CardTitle className='font-poppins'>
             Create New User
           </CardTitle>
         </CardHeader>
         <CardContent>
-          {/* Existing form content */}
           <form onSubmit={handleCreateUser} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {renderFormInput(
@@ -237,9 +275,6 @@ const Admin = () => {
                 newUser.lastName,
                 (e) => setNewUser(prev => ({ ...prev, lastName: e.target.value }))
               )}
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {renderFormInput(
                 'email',
                 'Email',
@@ -247,188 +282,239 @@ const Admin = () => {
                 newUser.email,
                 (e) => setNewUser(prev => ({ ...prev, email: e.target.value }))
               )}
-　　 　 　 　 <div className="relative">
+              <div className="relative">
                 <Input
                   type={showPassword ? "text" : "password"}
                   placeholder="Password"
                   value={newUser.password}
                   onChange={(e) => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                  className={`w-full pr-10 ${errors.password ? 'border-red-500' : ''}`}
-                  aria-label="Password"
-                  aria-invalid={!!errors.password}
+                  className={errors.password ? 'border-red-500' : ''}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowPassword(prev => !prev)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2"
-                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4 text-gray-500" />
+                  ) : (
+                    <Eye className="h-4 w-4 text-gray-500" />
+                  )}
                 </button>
                 {errors.password && (
-                  <p className="text-red-500 text-sm mt-1" role="alert">{errors.password}</p>
+                  <p className="text-red-500 text-sm mt-1">{errors.password}</p>
                 )}
               </div>
-
-              <Select
-                value={newUser.role}
-                onValueChange={(value) => setNewUser(prev => ({ ...prev, role: value }))}
-              >
-                <SelectTrigger aria-label="Select role">
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="maker">Maker</SelectItem>
-                  <SelectItem value="checker">Checker</SelectItem>
-                </SelectContent>
-              </Select>
+              <div className="space-y-2">
+                <Select
+                  value={newUser.role}
+                  onValueChange={(value) => setNewUser(prev => ({ ...prev, role: value }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="maker">Maker</SelectItem>
+                    <SelectItem value="checker">Checker</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <Button 
-              type="submit" 
-              className="w-full bg-primary hover:bg-primary/90"
+            <Button
+              type="submit"
+              className="w-full"
             >
               Create User
             </Button>
-            </form>
+          </form>
         </CardContent>
       </Card>
 
       {/* User Management Table */}
       <Card>
-        {/* Existing table content */}
         <CardHeader>
           <CardTitle className='font-poppins'>User Management</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto font-poppins">
-            <GridTable
-              columnDefs={getColumnDefs(table)}
-              rowData={rowData}
-              onCellValueChanged={handleCellValueChanged}
-              pendingChanges={pendingChanges}
-              pagination={pagination}
-              onPageChange={handlePageChange}
-              onPageSizeChange={handlePageSizeChange}
-              loading={isLoading}
-            />
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead>
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {users.map((user) => (
+                  <tr key={user.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      {user.firstName} {user.lastName}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">{user.email}</td>
+                    <td className="px-6 py-4 whitespace-nowrap capitalize">{user.role}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handleEditClick(user)}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <Edit2 className="h-4 w-4" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDeleteClick(user)}
+                        className="inline-flex items-center gap-1"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </CardContent>
       </Card>
-                {/* <Definedata/> */}
+
       {/* Edit User Dialog */}
       <Dialog 
         open={dialogState.edit.open} 
-        onOpenChange={(open) => setDialogState(prev => ({
-          ...prev,
-          edit: { open }
-        }))}
+        onOpenChange={(open) => setDialogState(prev => ({ ...prev, edit: { open } }))}
       >
-        <DialogContent className="sm:max-w-[425px] font-poppins text-black bg-white">
+        <DialogContent className="bg-white font-poppins">
           <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Make changes to user information below
-            </DialogDescription>
+            <DialogTitle className="font-poppins">Edit User</DialogTitle>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            {renderFormInput(
-              'firstName',
-              'First Name',
-              'text',
-              editingUser?.firstName || '',
-              (e) => setEditingUser(prev => ({
-                ...prev,
-                firstName: e.target.value
-              }))
-            )}
-            {renderFormInput(
-              'lastName',
-              'Last Name',
-              'text',
-              editingUser?.lastName || '',
-              (e) => setEditingUser(prev => ({
-                ...prev,
-                lastName: e.target.value
-              }))
-            )}
-            {renderFormInput(
-              'email',
-              'Email',
-              'email',
-              editingUser?.email || '',
-              (e) => setEditingUser(prev => ({
-                ...prev,
-                email: e.target.value
-              }))
-            )}
-            <Select
-              value={editingUser?.role}
-              onValueChange={(value) => setEditingUser(prev => ({
-                ...prev,
-                role: value
-              }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="maker">Maker</SelectItem>
-                <SelectItem value="checker">Checker</SelectItem>
-              </SelectContent>
-            </Select>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label htmlFor="edit-firstName" className="font-poppins">First Name</label>
+                <Input
+                  id="edit-firstName"
+                  value={editingUser?.firstName || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? ({ ...prev, firstName: e.target.value }) : null)}
+                  className={`${errors.firstName ? 'border-red-500' : ''} font-poppins`}
+                />
+                {errors.firstName && <p className="text-red-500 text-sm font-poppins">{errors.firstName}</p>}
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="edit-lastName" className="font-poppins">Last Name</label>
+                <Input
+                  id="edit-lastName"
+                  value={editingUser?.lastName || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? ({ ...prev, lastName: e.target.value }) : null)}
+                  className={`${errors.lastName ? 'border-red-500' : ''} font-poppins`}
+                />
+                {errors.lastName && <p className="text-red-500 text-sm font-poppins">{errors.lastName}</p>}
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="edit-email" className="font-poppins">Email</label>
+                <Input
+                  id="edit-email"
+                  type="email"
+                  value={editingUser?.email || ''}
+                  onChange={(e) => setEditingUser(prev => prev ? ({ ...prev, email: e.target.value }) : null)}
+                  className={`${errors.email ? 'border-red-500' : ''} font-poppins`}
+                />
+                {errors.email && <p className="text-red-500 text-sm font-poppins">{errors.email}</p>}
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="edit-role" className="font-poppins">Role</label>
+                <Select
+                  value={editingUser?.role || ''}
+                  onValueChange={(value) => setEditingUser(prev => prev ? ({ ...prev, role: value }) : null)}
+                >
+                  <SelectTrigger className="font-poppins">
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-white font-poppins">
+                    <SelectItem value="maker">Maker</SelectItem>
+                    <SelectItem value="checker">Checker</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2 col-span-2">
+                <label htmlFor="edit-password" className="font-poppins">Password (leave blank to keep unchanged)</label>
+                <div className="relative">
+                  <Input
+                    id="edit-password"
+                    type={showPassword ? "text" : "password"}
+                    value={editingUser?.password || ''}
+                    onChange={(e) => setEditingUser(prev => prev ? ({ ...prev, password: e.target.value }) : null)}
+                    placeholder="Leave blank to keep unchanged"
+                    className="font-poppins"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2 top-1/2 transform -translate-y-1/2"
+                  >
+                    {showPassword ? (
+                      <EyeOff className="h-4 w-4 text-gray-500" />
+                    ) : (
+                      <Eye className="h-4 w-4 text-gray-500" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button
-              variant="secondary"
+              variant="outline"
               onClick={() => {
-                setDialogState(prev => ({
-                  ...prev,
-                  edit: { open: false }
-                }));
+                setDialogState(prev => ({ ...prev, edit: { open: false } }));
+                setEditingUser(null);
                 setErrors({});
               }}
+              className="font-poppins"
             >
               Cancel
             </Button>
-            <Button 
-              onClick={handleUpdateUser}
-              className="bg-primary hover:bg-primary/90"
-            >
+            <Button onClick={handleUpdateUser} className="font-poppins">
               Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      
 
       {/* Delete Confirmation Dialog */}
       <Dialog 
         open={dialogState.delete.open}
-        onOpenChange={(open) => setDialogState(prev => ({
-          ...prev,
-          delete: { ...prev.delete, open }
-        }))}
+        onOpenChange={(open) => 
+          setDialogState(prev => ({ ...prev, delete: { ...prev.delete, open } }))
+        }
       >
-        <DialogContent className="sm:max-w-[425px] bg-white text-black font-poppins">
+        <DialogContent className="bg-white font-poppins">
           <DialogHeader>
-            <DialogTitle>Confirm Delete</DialogTitle>
-            <DialogDescription>
-              Are you sure you want to delete user {dialogState.delete.user?.firstName} {dialogState.delete.user?.lastName}? This action cannot be undone.
+            <DialogTitle className="font-poppins">Confirm Delete</DialogTitle>
+            <DialogDescription className="font-poppins">
+              Are you sure you want to delete this user? This action cannot be undone.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
-              variant="secondary"
-              onClick={() => setDialogState(prev => ({
-                ...prev,
-                delete: { open: false, user: null }
-              }))}
+              variant="outline"
+              onClick={() => 
+                setDialogState(prev => ({ 
+                  ...prev, 
+                  delete: { open: false, user: null } 
+                }))
+              }
+              className="font-poppins"
             >
               Cancel
             </Button>
-            <Button
+            <Button 
               variant="destructive"
               onClick={handleConfirmDelete}
+              className="font-poppins"
             >
               Delete
             </Button>
@@ -437,7 +523,6 @@ const Admin = () => {
       </Dialog>
 
       <DropdownColumnsManager/>
-     
     </div>
   );
 };
